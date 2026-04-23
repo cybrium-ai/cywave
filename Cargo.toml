@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Cybrium AI <hello@cybrium.ai>"]
 description = "Wireless RF sensor — Wi-Fi, BLE, Zigbee, LoRaWAN, Drone detection"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/cybrium-ai/cywave"
 [[bin]]
 name = "cywave"
