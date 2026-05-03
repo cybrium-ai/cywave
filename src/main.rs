@@ -1,4 +1,4 @@
-mod wifi; mod ble; mod output;
+mod wifi; mod ble; mod hardware_rot; mod output;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +10,10 @@ enum Commands {
     Scan { #[arg(short, long, default_value = "en0")] interface: String, #[arg(short, long, default_value = "30")] duration: u64, #[arg(short, long, default_value = "wifi,ble")] protocols: String, #[arg(short = 'f', long, default_value = "text")] format: String },
     Interfaces,
     Version,
+    /// Report this host's hardware Root of Trust (TPM / Secure Enclave).
+    /// Detection only — feeds sensor-attribution and tamper-detection
+    /// flows. JSON output: {kind, vendor, present}.
+    Rot,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WirelessDevice { pub mac: String, pub name: String, pub device_type: String, pub protocol: String, pub signal_dbm: i32, pub channel: Option<u32>, pub encryption: Option<String> }
@@ -31,5 +35,12 @@ async fn main() {
         }
         Commands::Interfaces => { print_banner(); wifi::list_interfaces(); }
         Commands::Version => println!("cywave {} — Cybrium AI Wireless Sensor", env!("CARGO_PKG_VERSION")),
+        Commands::Rot => {
+            let r = hardware_rot::detect();
+            match serde_json::to_string_pretty(&r) {
+                Ok(j)  => println!("{j}"),
+                Err(e) => eprintln!("error serialising root-of-trust: {e}"),
+            }
+        }
     }
 }
