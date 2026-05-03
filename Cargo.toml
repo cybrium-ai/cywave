@@ -1,6 +1,6 @@
 [package]
 name = "cywave"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Cybrium AI <hello@cybrium.ai>"]
 description = "Wireless RF sensor — Wi-Fi, BLE, Zigbee, LoRaWAN, Drone detection"
