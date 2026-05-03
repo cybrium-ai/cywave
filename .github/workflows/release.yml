@@ -102,3 +102,83 @@ jobs:
             artifacts/cywave-darwin-arm64/cywave-darwin-arm64
             artifacts/cywave-windows-amd64.exe/cywave-windows-amd64.exe
             artifacts/checksums.txt
+
+      # ── Auto-publish Homebrew formula to cybrium-ai/homebrew-cli ──
+      - name: Resolve version
+        id: ver
+        run: echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract per-platform SHA256s
+        id: sums
+        run: |
+          {
+            echo "darwin_arm64_sha=$(awk '/cywave-darwin-arm64$/  {print $1}' artifacts/checksums.txt)"
+            echo "darwin_amd64_sha=$(awk '/cywave-darwin-amd64$/  {print $1}' artifacts/checksums.txt)"
+            echo "linux_arm64_sha=$(awk  '/cywave-linux-arm64$/   {print $1}' artifacts/checksums.txt)"
+            echo "linux_amd64_sha=$(awk  '/cywave-linux-amd64$/   {print $1}' artifacts/checksums.txt)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: cybrium-ai/homebrew-cli
+          token:      ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path:       homebrew-cli
+
+      - name: Render + commit Formula/cywave.rb
+        run: |
+          VERSION="${{ steps.ver.outputs.tag }}"
+          BASE="https://github.com/cybrium-ai/cywave/releases/download/v${VERSION}"
+          mkdir -p homebrew-cli/Formula
+          cat > homebrew-cli/Formula/cywave.rb <<RUBY
+          class Cywave < Formula
+            desc     "Cybrium wireless RF sensor — Wi-Fi, BLE, Zigbee detection"
+            homepage "https://github.com/cybrium-ai/cywave"
+            license  "Apache-2.0"
+            version  "${VERSION}"
+
+            on_macos do
+              on_arm do
+                url    "${BASE}/cywave-darwin-arm64"
+                sha256 "${{ steps.sums.outputs.darwin_arm64_sha }}"
+              end
+              on_intel do
+                url    "${BASE}/cywave-darwin-amd64"
+                sha256 "${{ steps.sums.outputs.darwin_amd64_sha }}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url    "${BASE}/cywave-linux-arm64"
+                sha256 "${{ steps.sums.outputs.linux_arm64_sha }}"
+              end
+              on_intel do
+                url    "${BASE}/cywave-linux-amd64"
+                sha256 "${{ steps.sums.outputs.linux_amd64_sha }}"
+              end
+            end
+
+            def install
+              if OS.mac? && Hardware::CPU.arm?
+                bin.install "cywave-darwin-arm64" => "cywave"
+              elsif OS.mac? && Hardware::CPU.intel?
+                bin.install "cywave-darwin-amd64" => "cywave"
+              elsif OS.linux? && Hardware::CPU.arm?
+                bin.install "cywave-linux-arm64" => "cywave"
+              else
+                bin.install "cywave-linux-amd64" => "cywave"
+              end
+            end
+
+            test do
+              assert_match "cywave", shell_output("#{bin}/cywave version")
+            end
+          end
+          RUBY
+          cd homebrew-cli
+          git config user.name  "cybrium-bot"
+          git config user.email "bot@cybrium.ai"
+          git add Formula/cywave.rb
+          git commit -m "cywave: bump to v${VERSION}" || echo "no changes"
+          git push
