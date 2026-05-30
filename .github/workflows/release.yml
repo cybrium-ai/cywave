@@ -5,6 +5,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write    # OIDC federated token for Azure Trusted Signing (Windows)
 jobs:
   build:
     strategy:
@@ -77,10 +78,74 @@ jobs:
         run: |
           mkdir dist
           cp target/${{ matrix.target }}/release/cywave.exe dist/${{ matrix.name }}
+
+      # ── MSI installer (Windows only) ───────────────────────────────
+      # cargo-wix builds a Windows MSI from wix/main.wxs, reusing the
+      # already-built release .exe. The MSI is signed alongside the
+      # standalone .exe (files-folder-filter widened to exe,msi).
+      - name: Install cargo-wix
+        if: runner.os == 'Windows'
+        run: cargo install cargo-wix --version 0.3.9
+
+      - name: Build MSI installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo wix --no-build --nocapture `
+            --target ${{ matrix.target }} `
+            --output dist\cywave-windows-amd64.msi
+          Get-ChildItem dist
+
+      # ── Azure Trusted Signing (Windows binaries only) ──────────────
+      # azure/login MUST run before trusted-signing-action so the
+      # DefaultAzureCredential chain finds the OIDC token. FIC subject
+      # is repo:cybrium-ai/cywave:ref_type:tag — tag pushes only.
+      - name: Azure login (federated OIDC)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        uses: azure/login@v2
+        with:
+          client-id:              ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:              ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Sign Windows binary via Azure Trusted Signing
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        uses: Azure/trusted-signing-action@v0.5
+        with:
+          azure-tenant-id:              ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id:              ${{ secrets.AZURE_CLIENT_ID }}
+          endpoint:                     https://cus.codesigning.azure.net/
+          trusted-signing-account-name: cybrium-signing
+          certificate-profile-name:     cybrium
+          files-folder:                 dist
+          files-folder-filter:          exe,msi
+          file-digest:                  SHA256
+          timestamp-rfc3161:            http://timestamp.acs.microsoft.com
+          timestamp-digest:             SHA256
+
+      - name: Verify Windows signatures (exe + msi)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          foreach ($file in @("dist/${{ matrix.name }}", "dist/cywave-windows-amd64.msi")) {
+            $sig = Get-AuthenticodeSignature $file
+            Write-Host "$file"
+            Write-Host "  Status: $($sig.Status)"
+            Write-Host "  Signer: $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { throw "Signature verification failed for $file : $($sig.Status)" }
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
           path: dist/${{ matrix.name }}
+
+      - name: Upload MSI artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cywave-windows-amd64.msi
+          path: dist/cywave-windows-amd64.msi
 
   release:
     needs: build
@@ -101,6 +166,7 @@ jobs:
             artifacts/cywave-darwin-amd64/cywave-darwin-amd64
             artifacts/cywave-darwin-arm64/cywave-darwin-arm64
             artifacts/cywave-windows-amd64.exe/cywave-windows-amd64.exe
+            artifacts/cywave-windows-amd64.msi/cywave-windows-amd64.msi
             artifacts/checksums.txt
 
       # ── Auto-publish Homebrew formula to cybrium-ai/homebrew-cli ──
