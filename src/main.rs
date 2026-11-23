@@ -1,4 +1,4 @@
-mod wifi; mod ble; mod hardware_rot; mod output;
+mod wifi; mod ble; mod drone; mod hardware_rot; mod output;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +10,10 @@ enum Commands {
     Scan { #[arg(short, long, default_value = "en0")] interface: String, #[arg(short, long, default_value = "30")] duration: u64, #[arg(short, long, default_value = "wifi,ble")] protocols: String, #[arg(short = 'f', long, default_value = "text")] format: String },
     Interfaces,
     Version,
+    /// Decode a captured Remote ID advertisement (ASTM F3411 / EN 4709) and
+    /// report any detected drone. Pass the raw bytes as hex, e.g. from a BLE
+    /// 0xFFFA service-data advertisement.
+    Drone { #[arg(short = 'x', long)] hex: String, #[arg(short, long, default_value = "ble")] link: String, #[arg(short = 'f', long, default_value = "text")] format: String },
     /// Report this host's hardware Root of Trust (TPM / Secure Enclave).
     /// Detection only — feeds sensor-attribution and tamper-detection
     /// flows. JSON output: {kind, vendor, present}.
@@ -34,6 +38,15 @@ async fn main() {
             output::print_devices(&devices, &format);
         }
         Commands::Interfaces => { print_banner(); wifi::list_interfaces(); }
+        Commands::Drone { hex, link, format } => {
+            print_banner();
+            let bytes: Vec<u8> = match (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(hex.get(i..i + 2).unwrap_or(""), 16)).collect::<Result<_, _>>() {
+                Ok(b) => b,
+                Err(_) => { eprintln!("  invalid hex"); std::process::exit(1); }
+            };
+            let device = if link == "wifi" { drone::from_wifi_frame("unknown", -50, &bytes) } else { drone::from_ble_advertisement("unknown", -50, &bytes) };
+            output::print_devices(&device.into_iter().collect::<Vec<_>>(), &format);
+        }
         Commands::Version => println!("cywave {} — Cybrium AI Wireless Sensor", env!("CARGO_PKG_VERSION")),
         Commands::Rot => {
             let r = hardware_rot::detect();

@@ -184,6 +184,7 @@ dependencies = [
  "chrono",
  "clap",
  "colored",
+ "remoteid",
  "serde",
  "serde_json",
  "tokio",
@@ -377,6 +378,12 @@ checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
 ]
+
+[[package]]
+name = "remoteid"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "212a4b231e5b2a71fd5c1fb52a103d2ec345d1e55676a4508c866505b71a4807"
 
 [[package]]
 name = "rustversion"
